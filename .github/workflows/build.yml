@@ -1,12 +1,26 @@
-name: Build PixelOS for A73xq
+name: Build PixelOS
 
 on:
   workflow_dispatch:
+    inputs:
+      android_version:
+        description: 'android_version'
+        required: true
+        default: 'fifteen'
+      aosp_target_release:
+        description: 'aosp_target_release'
+        required: true
+        default: 'bp1a'
+      buildtype:
+        description: 'buildtype: user, userdebug, eng'
+        required: true
+        default: 'userdebug'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    strategy:
+      fail-fast: false
 
     env:
       USE_CCACHE: true
@@ -14,31 +28,47 @@ jobs:
       RCLONE_CONFIG: ${{ secrets.RCLONE_CONF }}
 
     steps:
-    - name: Setup dependencies
+    - name: Install the build packages
       run: |
         sudo apt update
-        sudo apt install -y openjdk-11-jdk git curl repo gcc g++ python3 \
-            bc bison build-essential zip curl zlib1g-dev \
-            libncurses6-dev libncurses6 libncurses-dev \
-            libssl-dev flex lib32ncurses6-dev x11proto-core-dev \
-            libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils \
-            xsltproc unzip fontconfig lzop lz4 ccache
+        sudo apt install -y \
+            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
+            git git-lfs gnupg gperf imagemagick protobuf-compiler python3-protobuf \
+            lib32readline-dev lib32z1-dev libdw-dev libelf-dev lz4 \
+            libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
+            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+            
+        wget https://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2_amd64.deb \
+            && sudo dpkg -i libtinfo5_6.3-2_amd64.deb && rm -f libtinfo5_6.3-2_amd64.deb
+        wget https://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.3-2_amd64.deb \
+            && sudo dpkg -i libncurses5_6.3-2_amd64.deb && rm -f libncurses5_6.3-2_amd64.deb
 
-    - name: Setup ccache
-      uses: actions/cache@v3
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'zulu'
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13.3'
+
+    - name: Cache
+      uses: actions/cache@v4
       with:
         path: ${{ env.CCACHE_DIR }}
         key: ccache-${{ github.run_id }}
         restore-keys: |
           ccache-
 
-    - name: Initialize repo and sync source
+    - name: Initialize the PixelOS source and sync
       run: |
         mkdir pixelos && cd pixelos
-        repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs
+        repo init -u https://github.com/PixelOS-AOSP/manifest.git -b {{ github.event.inputs.android_version }} --git-lfs
         repo sync
 
-    - name: Clone device, vendor, kernel trees
+    - name: Prepare the device-specific trees
       run: |
         cd pixelos
         git clone https://github.com/LineageOS/android_hardware_samsung hardware/samsung
@@ -47,28 +77,19 @@ jobs:
         git clone https://github.com/Simon1511/android_vendor_samsung_a73xq.git vendor/samsung/a73xq
         git clone https://github.com/Simon1511/android_vendor_samsung_sm7325-common vendor/samsung/sm7325-common
         git clone https://github.com/LineageOS/android_kernel_samsung_sm7325.git kernel/samsung/sm7325
-        
-    - name: Build PixelOS
+
+    - name: Start the build
       run: |
         cd pixelos
         export CCACHE_EXEC=$(which ccache)
-        ccache -M 20G
+        ccache -M 50G
         source build/envsetup.sh
-        lunch aosp_a73xq-bp1a-userdebug
+        lunch aosp_a73xq-{{ github.event.inputs.aosp_target_release }}-${{ github.event.inputs.buildtype }}
         mka bacon
 
-    - name: Check if ROM exists before upload
-      run: |
-        if ls pixelos/out/target/product/a73xq/*.zip 1> /dev/null 2>&1; then
-          echo "ROM found, proceeding with upload."
-        else
-          echo "No ROM found. Exiting."
-          exit 1
-        fi
-
-    - name: Upload ROM to Google Drive via rclone
+    - name: Upload to Google Drive
       run: |
         sudo apt install -y rclone
         echo "${RCLONE_CONFIG}" > rclone.conf
         cd pixelos
-        rclone --config=rclone.conf copy out/target/product/a73xq/*.zip gdrive:/PixelOS-a73xq/
+        rclone --config=rclone.conf copy /out/target/product/a73xq/PixelOS_*.zip gdrive:/PixelOS-a73xq/
