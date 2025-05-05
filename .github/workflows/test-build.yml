@@ -3,10 +3,6 @@ name: Build PixelOS
 on:
   workflow_dispatch:
     inputs:
-      pixelos_version:
-        description: 'pixelos_version'
-        required: true
-        default: 'fifteen'
       aosp_target_release:
         description: 'aosp_target_release'
         required: true
@@ -55,7 +51,7 @@ jobs:
         run: |
           mkdir pixelos
           cd pixelos
-          repo init -u https://github.com/PixelOS-AOSP/manifest.git -b {{ github.event.inputs.pixelos_version }} --git-lfs
+          repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs
           repo sync
 
       - name: Prepare the device-specific trees
@@ -74,7 +70,7 @@ jobs:
           export CCACHE_EXEC=$(which ccache)
           ccache -M 50G
           source build/envsetup.sh
-          lunch aosp_a73xq-{{ github.event.inputs.aosp_target_release }}-${{ github.event.inputs.buildtype }}
+          lunch aosp_a73xq-${{ github.event.inputs.aosp_target_release }}-${{ github.event.inputs.buildtype }}
           mka bacon
 
       - name: Upload to Google Drive
