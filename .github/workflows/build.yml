@@ -72,9 +72,3 @@ jobs:
         echo "${RCLONE_CONFIG}" > rclone.conf
         cd pixelos
         rclone --config=rclone.conf copy out/target/product/a73xq/*.zip gdrive:/PixelOS-a73xq/
-
-    - name: Save ROM as GitHub Artifact (backup)
-      uses: actions/upload-artifact@v3
-      with:
-        name: PixelOS-a73xq
-        path: pixelos/out/target/product/a73xq/*.zip
