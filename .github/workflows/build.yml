@@ -57,8 +57,8 @@ jobs:
         export CCACHE_EXEC=$(which ccache)
         ccache -M 20G
         source build/envsetup.sh
-        lunch aosp_a73xq-userdebug
-        mka bacon -j2
+        lunch aosp_a73xq-bp1a-userdebug
+        mka bacon
 
     - name: Upload ROM to Google Drive via rclone
       run: |
