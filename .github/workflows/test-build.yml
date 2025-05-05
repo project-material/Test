@@ -1,0 +1,85 @@
+name: Build PixelOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      pixelos_version:
+        description: 'pixelos_version'
+        required: true
+        default: 'fifteen'
+      aosp_target_release:
+        description: 'aosp_target_release'
+        required: true
+        default: 'bp1a'
+      build_variant:
+        description: 'build_variant: user, userdebug, eng'
+        required: true
+        default: 'userdebug'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    env:
+      USE_CCACHE: true
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      RCLONE_CONFIG: ${{ secrets.RCLONE_CONF }}
+
+    steps:
+      - name: Setup Java JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Necessary Tools and Dependencies
+        run: |
+          wget https://raw.githubusercontent.com/akhilnarang/scripts/master/setup/android_build_env.sh && sudo bash android_build_env.sh
+
+      - name: Cache CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.run_id }}
+          restore-keys: |
+            ccache-
+          
+      - name: Initialize the PixelOS source and sync
+        run: |
+          mkdir pixelos
+          cd pixelos
+          repo init -u https://github.com/PixelOS-AOSP/manifest.git -b {{ github.event.inputs.pixelos_version }} --git-lfs
+          repo sync
+
+      - name: Prepare the device-specific trees
+        run: |
+          cd pixelos
+          git clone https://github.com/LineageOS/android_hardware_samsung hardware/samsung
+          git clone https://github.com/LineageOS/android_device_samsung_a73xq.git device/samsung/a73xq
+          git clone https://github.com/Simon1511/android_device_samsung_sm7325-common device/samsung/sm7325-common
+          git clone https://github.com/Simon1511/android_vendor_samsung_a73xq.git vendor/samsung/a73xq
+          git clone https://github.com/Simon1511/android_vendor_samsung_sm7325-common vendor/samsung/sm7325-common
+          git clone https://github.com/LineageOS/android_kernel_samsung_sm7325.git kernel/samsung/sm7325
+
+      - name: Start the build
+        run: |
+          cd pixelos
+          export CCACHE_EXEC=$(which ccache)
+          ccache -M 50G
+          source build/envsetup.sh
+          lunch aosp_a73xq-{{ github.event.inputs.aosp_target_release }}-${{ github.event.inputs.buildtype }}
+          mka bacon
+
+      - name: Upload to Google Drive
+        run: |
+          sudo apt install -y rclone
+          echo "${RCLONE_CONFIG}" > rclone.conf
+          cd pixelos
+          rclone --config=rclone.conf copy /out/target/product/a73xq/PixelOS_*.zip gdrive:/PixelOS-a73xq/
